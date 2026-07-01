@@ -265,24 +265,6 @@
       history.replaceState(null, '', window.location.pathname);
     }
 
-    function loadPost(slug) {
-      if (!slug) return showList();
-      const post = posts.find(p => p.meta.slug === slug);
-      if (post) {
-        renderPost(post.meta, post.html, slug);
-      } else {
-        fetch(`/posts/${slug}.md`)
-          .then(r => { if (!r.ok) throw new Error('not found'); return r.text(); })
-          .then(text => {
-            const { meta, body } = parseFrontmatter(text);
-            const html = marked.parse(body);
-            posts.push({ meta, html });
-            renderPost(meta, html, slug);
-          })
-          .catch(() => showList());
-      }
-    }
-
     async function loadAllPosts() {
       const files = await fetch('/posts/index.json')
         .then(r => r.json())
@@ -296,7 +278,7 @@
             .then(r => r.text())
             .then(text => {
               const { meta } = parseFrontmatter(text);
-              return { file: f.file, meta };
+              return { file: f.file, meta, body: text };
             })
             .catch(() => null)
         )
@@ -306,17 +288,33 @@
         (b.meta.date || '').localeCompare(a.meta.date || '')
       );
 
+      valid.forEach(item => {
+        posts.push({
+          meta: item.meta,
+          html: marked.parse(item.body.replace(/^---\n[\s\S]*?\n---\n/, ''))
+        });
+      });
+
       const listEl = document.getElementById('post-list');
       valid.forEach(({ file, meta }) => {
         const slug = meta.slug || file.replace('.md', '');
         const li = document.createElement('li');
         li.innerHTML = `
-          <a href="?p=${slug}" onclick="event.preventDefault();loadPost('${slug}')">
+          <a href="?p=${slug}" data-slug="${slug}">
             <span class="post-title">${meta.title || slug}</span>
             <span class="post-date">${meta.date || ''}</span>
           </a>
         `;
         listEl.appendChild(li);
+      });
+
+      document.getElementById('post-list').addEventListener('click', function(e) {
+        const link = e.target.closest('a[data-slug]');
+        if (!link) return;
+        e.preventDefault();
+        const slug = link.getAttribute('data-slug');
+        const post = posts.find(p => p.meta.slug === slug);
+        if (post) renderPost(post.meta, post.html, slug);
       });
     }
 
@@ -324,9 +322,13 @@
     const postSlug = params.get('p');
 
     if (postSlug) {
-      loadPost(postSlug);
+      loadAllPosts().then(() => {
+        const post = posts.find(p => p.meta.slug === postSlug);
+        if (post) renderPost(post.meta, post.html, postSlug);
+      });
+    } else {
+      loadAllPosts();
     }
-    loadAllPosts();
   </script>
 </body>
 </html>
